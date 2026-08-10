@@ -1,6 +1,14 @@
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { supabase } from "./supabase/client";
-import { EMPTY_EXPLANATION, type DocumentRow, type NodeRow, type TiptapDoc } from "./types";
+import {
+  EMPTY_EXPLANATION,
+  type CollaboratorRole,
+  type CollaboratorRow,
+  type DocumentExport,
+  type DocumentRow,
+  type NodeRow,
+  type TiptapDoc,
+} from "./types";
 
 const POSITION_GAP = 1000;
 
@@ -13,10 +21,10 @@ export async function listDocuments(): Promise<DocumentRow[]> {
   return data;
 }
 
-export async function createDocument(title: string): Promise<DocumentRow> {
+export async function createDocument(title: string, ownerId: string): Promise<DocumentRow> {
   const { data, error } = await supabase
     .from("documents")
-    .insert({ title })
+    .insert({ title, owner_id: ownerId })
     .select()
     .single();
   if (error) throw error;
@@ -91,6 +99,140 @@ export async function updateNode(
 export async function deleteNode(id: string): Promise<void> {
   const { error } = await supabase.from("nodes").delete().eq("id", id);
   if (error) throw error;
+}
+
+export async function listCollaborators(documentId: string): Promise<CollaboratorRow[]> {
+  const { data, error } = await supabase
+    .from("document_collaborators")
+    .select("*")
+    .eq("document_id", documentId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+export async function addCollaborator(
+  documentId: string,
+  email: string,
+  role: CollaboratorRole,
+): Promise<CollaboratorRow> {
+  const { data, error } = await supabase
+    .from("document_collaborators")
+    .insert({ document_id: documentId, email: email.trim().toLowerCase(), role })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateCollaboratorRole(id: string, role: CollaboratorRole): Promise<void> {
+  const { error } = await supabase.from("document_collaborators").update({ role }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function removeCollaborator(id: string): Promise<void> {
+  const { error } = await supabase.from("document_collaborators").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function exportDocumentToJson(documentId: string): Promise<DocumentExport> {
+  const [doc, nodes, collaborators] = await Promise.all([
+    getDocument(documentId),
+    listNodes(documentId),
+    listCollaborators(documentId),
+  ]);
+  if (!doc) throw new Error("Document not found");
+
+  const childrenByParent = new Map<string | null, NodeRow[]>();
+  for (const n of nodes) {
+    const key = n.parent_id;
+    if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+    childrenByParent.get(key)!.push(n);
+  }
+  for (const list of childrenByParent.values()) list.sort((a, b) => a.position - b.position);
+
+  // Walk parents-before-children so each node's parentIndex always points
+  // to an already-emitted array entry.
+  const ordered: NodeRow[] = [];
+  const idToIndex = new Map<string, number>();
+  const visit = (parentId: string | null) => {
+    for (const n of childrenByParent.get(parentId) ?? []) {
+      idToIndex.set(n.id, ordered.length);
+      ordered.push(n);
+      visit(n.id);
+    }
+  };
+  visit(null);
+
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    document: { title: doc.title },
+    collaborators: collaborators.map((c) => ({ email: c.email, role: c.role })),
+    nodes: ordered.map((n) => ({
+      parentIndex: n.parent_id ? (idToIndex.get(n.parent_id) ?? null) : null,
+      position: n.position,
+      summary: n.summary,
+      explanation: n.explanation,
+    })),
+  };
+}
+
+export async function importDocumentFromExport(
+  data: DocumentExport,
+  ownerId: string,
+): Promise<DocumentRow> {
+  const doc = await createDocument(data.document.title, ownerId);
+
+  const ids = data.nodes.map(() => crypto.randomUUID());
+  const nodeRows = data.nodes.map((n, i) => ({
+    id: ids[i],
+    document_id: doc.id,
+    parent_id: n.parentIndex === null ? null : ids[n.parentIndex],
+    position: n.position,
+    summary: n.summary,
+    explanation: n.explanation,
+  }));
+
+  if (nodeRows.length > 0) {
+    const { error } = await supabase.from("nodes").insert(nodeRows);
+    if (error) throw error;
+  }
+
+  if (data.collaborators.length > 0) {
+    const { error } = await supabase.from("document_collaborators").insert(
+      data.collaborators.map((c) => ({
+        document_id: doc.id,
+        email: c.email,
+        role: c.role,
+      })),
+    );
+    if (error) throw error;
+  }
+
+  return doc;
+}
+
+export function subscribeToCollaboratorChanges(
+  documentId: string,
+  onChange: (payload: RealtimePostgresChangesPayload<CollaboratorRow>) => void,
+): () => void {
+  const channel = supabase
+    .channel(`document_collaborators:${documentId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "document_collaborators",
+        filter: `document_id=eq.${documentId}`,
+      },
+      onChange,
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
 
 export function subscribeToNodeChanges(

@@ -5,8 +5,20 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createDocument, listDocuments } from "@/lib/queries";
 import type { DocumentRow } from "@/lib/types";
+import { useAuth } from "@/components/AuthProvider";
+import RequireAuth from "@/components/RequireAuth";
+import { supabase } from "@/lib/supabase/client";
 
 export default function HomePage() {
+  return (
+    <RequireAuth>
+      <HomeContent />
+    </RequireAuth>
+  );
+}
+
+function HomeContent() {
+  const { user } = useAuth();
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(true);
@@ -20,16 +32,33 @@ export default function HomePage() {
   }, []);
 
   const handleCreate = useCallback(async () => {
-    const doc = await createDocument(title.trim() || "Untitled bidding system");
+    if (!user) return;
+    const doc = await createDocument(title.trim() || "Untitled bidding system", user.id);
     router.push(`/doc/${doc.id}`);
-  }, [title, router]);
+  }, [title, router, user]);
+
+  if (!user) return null;
 
   return (
     <main className="w-full px-8 py-8">
-      <h1 className="text-xl font-semibold text-neutral-800">Bidding Trees</h1>
-      <p className="mt-1 text-sm text-neutral-500">
-        Shared, editable trees for bridge bidding systems.
-      </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-neutral-800">Bidding Trees</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            Shared, editable trees for bridge bidding systems.
+          </p>
+        </div>
+        <div className="flex items-center gap-3 text-sm text-neutral-500">
+          <span>{user.email}</span>
+          <button
+            type="button"
+            onClick={() => supabase.auth.signOut()}
+            className="rounded border border-neutral-300 px-2.5 py-1 hover:bg-neutral-50"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
 
       <div className="mt-6 flex gap-2">
         <input
@@ -56,13 +85,16 @@ export default function HomePage() {
           <li className="py-3 text-sm text-neutral-400">No documents yet — create one above.</li>
         )}
         {documents.map((doc) => (
-          <li key={doc.id} className="py-3">
+          <li key={doc.id} className="flex items-center justify-between py-3">
             <Link
               href={`/doc/${doc.id}`}
               className="text-sm font-medium text-sky-700 hover:underline"
             >
               {doc.title}
             </Link>
+            <span className="text-xs text-neutral-400">
+              {doc.owner_id === user.id ? "Owned by you" : "Shared with you"}
+            </span>
           </li>
         ))}
       </ul>

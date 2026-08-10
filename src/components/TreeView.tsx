@@ -5,9 +5,12 @@ import { createNode, listNodes, subscribeToNodeChanges } from "@/lib/queries";
 import type { NodeRow } from "@/lib/types";
 import TreeNode from "./TreeNode";
 
-export default function TreeView({ documentId }: { documentId: string }) {
+export default function TreeView({ documentId, canEdit }: { documentId: string; canEdit: boolean }) {
   const [nodesById, setNodesById] = useState<Record<string, NodeRow>>({});
   const [loading, setLoading] = useState(true);
+  // The most recently created (still-unnamed) node, so the matching TreeNode
+  // can auto-focus its summary field the moment it appears.
+  const [pendingNewNodeId, setPendingNewNodeId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,8 +56,15 @@ export default function TreeView({ documentId }: { documentId: string }) {
   const rootNodes = childrenByParent.get(null) ?? [];
 
   const handleAddRoot = useCallback(async () => {
-    await createNode(documentId, null, "New bid");
+    try {
+      const created = await createNode(documentId, null);
+      setPendingNewNodeId(created.id);
+    } catch (error) {
+      console.error("Failed to add top-level bid:", error);
+    }
   }, [documentId]);
+
+  const handlePendingNewNodeHandled = useCallback(() => setPendingNewNodeId(null), []);
 
   if (loading) {
     return <div className="p-8 text-sm text-neutral-500">Loading…</div>;
@@ -71,16 +81,22 @@ export default function TreeView({ documentId }: { documentId: string }) {
             siblingIndex={index}
             childrenByParent={childrenByParent}
             documentId={documentId}
+            canEdit={canEdit}
+            pendingNewNodeId={pendingNewNodeId}
+            onNodeCreated={setPendingNewNodeId}
+            onPendingNewNodeHandled={handlePendingNewNodeHandled}
           />
         ))}
       </div>
-      <button
-        type="button"
-        onClick={handleAddRoot}
-        className="mt-4 rounded border border-dashed border-neutral-300 px-3 py-1.5 text-sm text-neutral-500 transition hover:border-neutral-400 hover:text-neutral-800"
-      >
-        + Add top-level bid
-      </button>
+      {canEdit && (
+        <button
+          type="button"
+          onClick={handleAddRoot}
+          className="mt-4 rounded border border-dashed border-neutral-300 px-3 py-1.5 text-sm text-neutral-500 transition hover:border-neutral-400 hover:text-neutral-800"
+        >
+          + Add top-level bid
+        </button>
+      )}
     </div>
   );
 }

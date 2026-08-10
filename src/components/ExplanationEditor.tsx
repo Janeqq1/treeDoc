@@ -2,12 +2,19 @@
 
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { updateNode } from "@/lib/queries";
+import { safeMutate } from "@/lib/safeMutate";
 import type { NodeRow } from "@/lib/types";
 
-export default function ExplanationEditor({ node }: { node: NodeRow }) {
+export default function ExplanationEditor({ node, canEdit }: { node: NodeRow; canEdit: boolean }) {
   const [isEditing, setIsEditing] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Content we just saved, waiting for the node.explanation prop to catch up
+  // (it only updates once the realtime round-trip completes). While pending,
+  // the editor's own content is already correct — don't let the remote-sync
+  // effect below clobber it with the stale pre-save prop value.
+  const pendingSaveRef = useRef<string | null>(null);
 
   const editor = useEditor({
     extensions: [StarterKit],
@@ -26,6 +33,12 @@ export default function ExplanationEditor({ node }: { node: NodeRow }) {
   useEffect(() => {
     if (!editor || isEditing) return;
     const incoming = JSON.stringify(node.explanation);
+
+    if (pendingSaveRef.current !== null) {
+      if (incoming === pendingSaveRef.current) pendingSaveRef.current = null;
+      return;
+    }
+
     const current = JSON.stringify(editor.getJSON());
     if (incoming !== current) {
       editor.commands.setContent(node.explanation);
@@ -40,19 +53,40 @@ export default function ExplanationEditor({ node }: { node: NodeRow }) {
   const save = useCallback(async () => {
     if (!editor) return;
     setIsEditing(false);
-    await updateNode(node.id, { explanation: editor.getJSON() });
+    const json = editor.getJSON();
+    pendingSaveRef.current = JSON.stringify(json);
+    const ok = await safeMutate(() => updateNode(node.id, { explanation: json }));
+    if (!ok) pendingSaveRef.current = null;
   }, [editor, node.id]);
+
+  // Blur-based "click away to save" is unreliable here: a contentEditable
+  // element only reliably blurs when the new click target is itself
+  // focusable (e.g. another node's button), not for plain non-focusable
+  // elements like backgrounds or gaps between nodes. A document-level click
+  // listener fires for literally any click, so it works consistently.
+  useEffect(() => {
+    if (!isEditing) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        save();
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isEditing, save]);
 
   if (!editor) return null;
 
   if (!isEditing) {
     return (
       <div
-        onClick={() => setIsEditing(true)}
-        className="cursor-text rounded px-1 py-0.5 text-sm text-neutral-600 hover:bg-white/60"
+        onClick={canEdit ? () => setIsEditing(true) : undefined}
+        className={`rounded px-1 py-0.5 text-sm text-neutral-600 ${canEdit ? "cursor-text hover:bg-white/60" : ""}`}
       >
         {editor.isEmpty ? (
-          <span className="italic text-neutral-400">Click to add an explanation…</span>
+          canEdit ? (
+            <span className="italic text-neutral-400">Click to add an explanation…</span>
+          ) : null
         ) : (
           <div className="max-h-40 overflow-y-auto">
             <EditorContent editor={editor} />
@@ -63,12 +97,7 @@ export default function ExplanationEditor({ node }: { node: NodeRow }) {
   }
 
   return (
-    <div
-      className="mt-1 rounded border border-neutral-300 bg-white p-2"
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) save();
-      }}
-    >
+    <div ref={containerRef} className="mt-1 rounded border border-neutral-300 bg-white p-2">
       <div className="mb-1 flex gap-1 border-b border-neutral-100 pb-1 text-xs">
         <ToolbarButton
           label="B"
