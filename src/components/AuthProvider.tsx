@@ -3,6 +3,7 @@
 import type { User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { debugLog } from "@/lib/authDebug";
 
 interface AuthState {
   user: User | null;
@@ -10,20 +11,6 @@ interface AuthState {
 }
 
 const AuthContext = createContext<AuthState>({ user: null, loading: true });
-
-// TEMPORARY diagnostic: survives the Google/Supabase redirect round-trip
-// (unlike browser devtools, which reset on cross-origin navigation), so we
-// can see what actually happened after the fact. Redacts real token values.
-function debugLog(entry: Record<string, unknown>) {
-  try {
-    const key = "__treedoc_auth_debug";
-    const prev = JSON.parse(localStorage.getItem(key) ?? "[]");
-    prev.push({ t: new Date().toISOString(), ...entry });
-    localStorage.setItem(key, JSON.stringify(prev.slice(-30)));
-  } catch {
-    // ignore
-  }
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
