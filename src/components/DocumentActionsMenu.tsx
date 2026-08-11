@@ -3,10 +3,9 @@
 import { pdf } from "@react-pdf/renderer";
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
-import { exportDocumentToJson, importDocumentFromExport, listNodes } from "@/lib/queries";
+import { exportDocumentToJson, importDocumentFromExport, isDocumentExport, listNodes } from "@/lib/queries";
 import { slugify } from "@/lib/slugify";
 import { useAuth } from "@/components/AuthProvider";
-import type { DocumentExport } from "@/lib/types";
 import BiddingTreePdfDocument from "./BiddingTreePdfDocument";
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -16,18 +15,6 @@ function downloadBlob(blob: Blob, filename: string) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
-}
-
-function isDocumentExport(data: unknown): data is DocumentExport {
-  if (!data || typeof data !== "object") return false;
-  const d = data as Record<string, unknown>;
-  return (
-    typeof d.document === "object" &&
-    d.document !== null &&
-    typeof (d.document as Record<string, unknown>).title === "string" &&
-    Array.isArray(d.nodes) &&
-    Array.isArray(d.collaborators)
-  );
 }
 
 export default function DocumentActionsMenu({

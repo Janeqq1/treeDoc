@@ -12,6 +12,18 @@ import {
 
 const POSITION_GAP = 1000;
 
+export function isDocumentExport(data: unknown): data is DocumentExport {
+  if (!data || typeof data !== "object") return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.document === "object" &&
+    d.document !== null &&
+    typeof (d.document as Record<string, unknown>).title === "string" &&
+    Array.isArray(d.nodes) &&
+    Array.isArray(d.collaborators)
+  );
+}
+
 export async function listDocuments(): Promise<DocumentRow[]> {
   const { data, error } = await supabase
     .from("documents")
