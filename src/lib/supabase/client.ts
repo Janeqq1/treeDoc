@@ -29,4 +29,13 @@ if (typeof window !== "undefined") {
   });
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    debug:
+      typeof window !== "undefined"
+        ? (...args: unknown[]) => {
+            debugLog({ event: "sb-internal", msg: args.map((a) => String(a)).join(" | ").slice(0, 400) });
+          }
+        : undefined,
+  },
+});
