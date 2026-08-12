@@ -2,6 +2,7 @@ import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { supabase } from "./supabase/client";
 import {
   EMPTY_EXPLANATION,
+  type AllowlistRow,
   type CollaboratorRole,
   type CollaboratorRow,
   type DocumentExport,
@@ -24,6 +25,42 @@ export function isDocumentExport(data: unknown): data is DocumentExport {
   );
 }
 
+export async function isAllowedCreator(): Promise<boolean> {
+  const { data, error } = await supabase.rpc("is_allowed_creator");
+  if (error) throw error;
+  return data;
+}
+
+export async function isAppAdmin(): Promise<boolean> {
+  const { data, error } = await supabase.rpc("is_app_admin");
+  if (error) throw error;
+  return data;
+}
+
+export async function listAllowedCreators(): Promise<AllowlistRow[]> {
+  const { data, error } = await supabase
+    .from("document_creators_allowlist")
+    .select("*")
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+export async function addAllowedCreator(email: string): Promise<AllowlistRow> {
+  const { data, error } = await supabase
+    .from("document_creators_allowlist")
+    .insert({ email: email.trim().toLowerCase() })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function removeAllowedCreator(id: string): Promise<void> {
+  const { error } = await supabase.from("document_creators_allowlist").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function listDocuments(): Promise<DocumentRow[]> {
   const { data, error } = await supabase
     .from("documents")
@@ -41,6 +78,11 @@ export async function createDocument(title: string, ownerId: string): Promise<Do
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function deleteDocument(id: string): Promise<void> {
+  const { error } = await supabase.from("documents").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function getDocument(id: string): Promise<DocumentRow | null> {
@@ -193,8 +235,9 @@ export async function exportDocumentToJson(documentId: string): Promise<Document
 export async function importDocumentFromExport(
   data: DocumentExport,
   ownerId: string,
+  titleOverride?: string,
 ): Promise<DocumentRow> {
-  const doc = await createDocument(data.document.title, ownerId);
+  const doc = await createDocument(titleOverride?.trim() || data.document.title, ownerId);
 
   const ids = data.nodes.map(() => crypto.randomUUID());
   const nodeRows = data.nodes.map((n, i) => ({

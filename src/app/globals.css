@@ -32,3 +32,9 @@ body {
   margin: 0.15rem 0;
 }
 
+.tiptap-content a {
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+}
+

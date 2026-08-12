@@ -1,6 +1,14 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import type { ComponentProps, ComponentType } from "react";
 import type { NodeRow } from "@/lib/types";
 import { isExplanationEmpty, renderExplanation } from "@/lib/pdf/tiptapToPdf";
+
+// `bookmark` is a real react-pdf prop (works on any node, not just Page —
+// it's how nested, collapsible PDF outline/sidebar entries are built) but
+// this package version's View type declarations don't include it.
+const ViewWithBookmark = View as unknown as ComponentType<
+  ComponentProps<typeof View> & { bookmark?: { title: string; expanded?: boolean } }
+>;
 
 // Same hue-per-depth, alternating-shade-per-sibling scheme as the on-screen
 // tree (src/lib/colors.ts), translated to hex since react-pdf doesn't read Tailwind.
@@ -38,7 +46,15 @@ function NodeBlock({
   const children = childrenByParent.get(node.id) ?? [];
 
   return (
-    <View style={{ marginLeft: depth * 16 }}>
+    // The bookmark makes this node (and, since bookmarks nest along the
+    // component tree, its children) a collapsible entry in the PDF
+    // viewer's own outline/sidebar panel — the closest a static PDF page
+    // can get to the app's expand/collapse tree, since page content itself
+    // can't be interactively hidden without JavaScript-enabled PDF forms.
+    <ViewWithBookmark
+      style={{ marginLeft: depth * 16 }}
+      bookmark={{ title: node.summary || "Untitled bid", expanded: true }}
+    >
       <View style={[styles.node, { backgroundColor, borderColor: palette.border }]}>
         <Text style={styles.summary}>{node.summary || "Untitled bid"}</Text>
         {isExplanationEmpty(node.explanation) ? null : renderExplanation(node.explanation, node.id)}
@@ -52,7 +68,7 @@ function NodeBlock({
           childrenByParent={childrenByParent}
         />
       ))}
-    </View>
+    </ViewWithBookmark>
   );
 }
 

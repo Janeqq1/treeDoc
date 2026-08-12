@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { exportDocumentToJson, importDocumentFromExport, isDocumentExport, listNodes } from "@/lib/queries";
 import { slugify } from "@/lib/slugify";
+import { buildTreeHtml } from "@/lib/htmlExport";
 import { useAuth } from "@/components/AuthProvider";
 import BiddingTreePdfDocument from "./BiddingTreePdfDocument";
 
@@ -27,7 +28,7 @@ export default function DocumentActionsMenu({
   const { user } = useAuth();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<"pdf" | "json" | "import" | null>(null);
+  const [busy, setBusy] = useState<"pdf" | "html" | "json" | "import" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,6 +43,23 @@ export default function DocumentActionsMenu({
     } catch (err) {
       console.error(err);
       setError("Couldn't export PDF.");
+    } finally {
+      setBusy(null);
+    }
+  }, [documentId, documentTitle]);
+
+  const handleExportHtml = useCallback(async () => {
+    setBusy("html");
+    setError(null);
+    try {
+      const nodes = await listNodes(documentId);
+      const html = buildTreeHtml(documentTitle, nodes);
+      const blob = new Blob([html], { type: "text/html" });
+      downloadBlob(blob, `${slugify(documentTitle)}.html`);
+      setOpen(false);
+    } catch (err) {
+      console.error(err);
+      setError("Couldn't export HTML.");
     } finally {
       setBusy(null);
     }
@@ -113,6 +131,9 @@ export default function DocumentActionsMenu({
         <div className="absolute right-0 top-full z-10 mt-1 w-44 rounded border border-neutral-200 bg-white py-1 shadow-md">
           <MenuItem onClick={handleExportPdf} disabled={busy !== null}>
             {busy === "pdf" ? "Generating…" : "Export PDF"}
+          </MenuItem>
+          <MenuItem onClick={handleExportHtml} disabled={busy !== null}>
+            {busy === "html" ? "Generating…" : "Export HTML"}
           </MenuItem>
           <MenuItem onClick={handleExportJson} disabled={busy !== null}>
             {busy === "json" ? "Exporting…" : "Export JSON"}

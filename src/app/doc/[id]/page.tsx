@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { use, useEffect, useState } from "react";
-import { getDocument, listCollaborators, subscribeToCollaboratorChanges } from "@/lib/queries";
+import { useRouter } from "next/navigation";
+import { use, useCallback, useEffect, useState } from "react";
+import { deleteDocument, getDocument, listCollaborators, subscribeToCollaboratorChanges } from "@/lib/queries";
 import type { CollaboratorRow, DocumentRow } from "@/lib/types";
 import TreeView from "@/components/TreeView";
 import SharePanel from "@/components/SharePanel";
@@ -23,12 +24,21 @@ export default function DocumentPage({ params }: PageProps<"/doc/[id]">) {
   );
 }
 
+const EDIT_MODE_TIMEOUT_MS = 2 * 60 * 1000;
+
 function DocumentContent({ id }: { id: string }) {
   const { user } = useAuth();
+  const router = useRouter();
   const [doc, setDoc] = useState<DocumentRow | null>(null);
   const [collaborators, setCollaborators] = useState<CollaboratorRow[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  // Defaults to view-only every time the page loads, even for people who
+  // can edit — they have to consciously flip this on, so a stray click
+  // can't silently modify the document. Any click or keypress while it's
+  // on resets a timer that flips it back off after a couple of minutes of
+  // no activity at all.
+  const [editModeOn, setEditModeOn] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +71,32 @@ function DocumentContent({ id }: { id: string }) {
       });
     });
   }, [id]);
+
+  // Auto-revert to view-only after a stretch of no activity at all, so an
+  // edit session left open doesn't stay unlocked indefinitely.
+  useEffect(() => {
+    if (!editModeOn) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setEditModeOn(false), EDIT_MODE_TIMEOUT_MS);
+    };
+    resetTimer();
+    document.addEventListener("mousedown", resetTimer);
+    document.addEventListener("keydown", resetTimer);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", resetTimer);
+      document.removeEventListener("keydown", resetTimer);
+    };
+  }, [editModeOn]);
+
+  const handleDeleteDocument = useCallback(async () => {
+    if (!doc) return;
+    if (!window.confirm(`Delete "${doc.title}" and everything in it? This can't be undone.`)) return;
+    await deleteDocument(doc.id);
+    router.push("/");
+  }, [doc, router]);
 
   if (notFound) {
     return (
@@ -97,6 +133,19 @@ function DocumentContent({ id }: { id: string }) {
           >
             Sign out
           </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setEditModeOn((v) => !v)}
+              className={
+                editModeOn
+                  ? "rounded border border-red-600 bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+                  : "rounded border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50"
+              }
+            >
+              {editModeOn ? "EDIT" : "VIEW"}
+            </button>
+          )}
           {isOwner && (
             <button
               type="button"
@@ -107,10 +156,20 @@ function DocumentContent({ id }: { id: string }) {
             </button>
           )}
           {doc && <DocumentActionsMenu documentId={id} documentTitle={doc.title} />}
+          {isOwner && (
+            <button
+              type="button"
+              onClick={handleDeleteDocument}
+              title="Delete document"
+              className="rounded border border-neutral-300 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-50 hover:text-red-600"
+            >
+              Delete
+            </button>
+          )}
         </div>
       </header>
       {shareOpen && isOwner && <SharePanel documentId={id} />}
-      <TreeView documentId={id} canEdit={canEdit} />
+      <TreeView documentId={id} canEdit={canEdit && editModeOn} />
     </main>
   );
 }

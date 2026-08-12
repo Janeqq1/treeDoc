@@ -18,6 +18,12 @@ export interface CollaboratorRow {
   created_at: string;
 }
 
+export interface AllowlistRow {
+  id: string;
+  email: string;
+  created_at: string;
+}
+
 export interface NodeRow {
   id: string;
   document_id: string;

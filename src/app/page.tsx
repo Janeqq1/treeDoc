@@ -3,10 +3,18 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createDocument, importDocumentFromExport, isDocumentExport, listDocuments } from "@/lib/queries";
+import {
+  createDocument,
+  importDocumentFromExport,
+  isAllowedCreator,
+  isAppAdmin,
+  isDocumentExport,
+  listDocuments,
+} from "@/lib/queries";
 import type { DocumentRow } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import RequireAuth from "@/components/RequireAuth";
+import CreatorAllowlistPanel from "@/components/CreatorAllowlistPanel";
 import { supabase } from "@/lib/supabase/client";
 
 export default function HomePage() {
@@ -24,6 +32,11 @@ function HomeContent() {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  // null while the permission checks are still loading — the buttons stay
+  // disabled either way, but the "you're not allowed" message only shows
+  // once we actually know that's true, not just because it hasn't loaded yet.
+  const [canCreate, setCanCreate] = useState<boolean | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
@@ -32,13 +45,15 @@ function HomeContent() {
       setDocuments(docs);
       setLoading(false);
     });
+    isAllowedCreator().then(setCanCreate);
+    isAppAdmin().then(setIsAdmin);
   }, []);
 
   const handleCreate = useCallback(async () => {
-    if (!user) return;
+    if (!user || !canCreate) return;
     const doc = await createDocument(title.trim() || "Untitled bidding system", user.id);
     router.push(`/doc/${doc.id}`);
-  }, [title, router, user]);
+  }, [title, router, user, canCreate]);
 
   const handleImportClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -57,7 +72,7 @@ function HomeContent() {
         if (!isDocumentExport(parsed)) {
           throw new Error("That doesn't look like a treeDoc export file.");
         }
-        const doc = await importDocumentFromExport(parsed, user.id);
+        const doc = await importDocumentFromExport(parsed, user.id, title);
         router.push(`/doc/${doc.id}`);
       } catch (err) {
         console.error(err);
@@ -66,7 +81,7 @@ function HomeContent() {
         setImporting(false);
       }
     },
-    [user, router],
+    [user, router, title],
   );
 
   if (!user) return null;
@@ -105,14 +120,15 @@ function HomeContent() {
         <button
           type="button"
           onClick={handleCreate}
-          className="rounded bg-neutral-800 px-3 py-1.5 text-sm text-white hover:bg-neutral-700"
+          disabled={!canCreate}
+          className="rounded bg-neutral-800 px-3 py-1.5 text-sm text-white hover:bg-neutral-700 disabled:opacity-50"
         >
           Create
         </button>
         <button
           type="button"
           onClick={handleImportClick}
-          disabled={importing}
+          disabled={importing || !canCreate}
           className="rounded border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
         >
           {importing ? "Importing…" : "Import JSON…"}
@@ -125,7 +141,14 @@ function HomeContent() {
           onChange={handleFileSelected}
         />
       </div>
+      {canCreate === false && (
+        <p className="mt-2 text-xs text-neutral-400">
+          Only invited creators can start new documents. Ask the admin for access if you&apos;d
+          like to create your own.
+        </p>
+      )}
       {importError && <p className="mt-2 text-xs text-red-500">{importError}</p>}
+      {isAdmin && <CreatorAllowlistPanel />}
 
       <ul className="mt-8 divide-y divide-neutral-100">
         {loading && <li className="py-3 text-sm text-neutral-400">Loading…</li>}

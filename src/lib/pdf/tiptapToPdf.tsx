@@ -1,10 +1,10 @@
-import { Text, View } from "@react-pdf/renderer";
+import { Link, Text, View } from "@react-pdf/renderer";
 import type { TiptapDoc } from "@/lib/types";
 
 interface TiptapNode {
   type?: string;
   text?: string;
-  marks?: { type: string }[];
+  marks?: { type: string; attrs?: Record<string, unknown> }[];
   attrs?: Record<string, unknown>;
   content?: TiptapNode[];
 }
@@ -16,11 +16,22 @@ function renderInline(nodes: TiptapNode[] = [], keyPrefix: string) {
     if (node.type !== "text" || !node.text) return null;
     const bold = node.marks?.some((m) => m.type === "bold");
     const italic = node.marks?.some((m) => m.type === "italic");
+    const linkMark = node.marks?.find((m) => m.type === "link");
+    const style = {
+      fontFamily: bold ? "Helvetica-Bold" : "Helvetica",
+      fontStyle: italic ? "italic" as const : "normal" as const,
+      ...(linkMark ? { color: "#2563eb", textDecoration: "underline" as const } : {}),
+    };
+    const href = typeof linkMark?.attrs?.href === "string" ? linkMark.attrs.href : undefined;
+    if (href) {
+      return (
+        <Link key={`${keyPrefix}-t${i}`} href={href} style={style}>
+          {node.text}
+        </Link>
+      );
+    }
     return (
-      <Text
-        key={`${keyPrefix}-t${i}`}
-        style={{ fontFamily: bold ? "Helvetica-Bold" : "Helvetica", fontStyle: italic ? "italic" : "normal" }}
-      >
+      <Text key={`${keyPrefix}-t${i}`} style={style}>
         {node.text}
       </Text>
     );
