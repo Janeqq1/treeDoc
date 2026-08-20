@@ -11,7 +11,7 @@ import {
   type TiptapDoc,
 } from "./types";
 
-const POSITION_GAP = 1000;
+export const POSITION_GAP = 1000;
 
 export function isDocumentExport(data: unknown): data is DocumentExport {
   if (!data || typeof data !== "object") return false;
@@ -144,7 +144,7 @@ export async function createNode(
 
 export async function updateNode(
   id: string,
-  patch: Partial<{ summary: string; explanation: TiptapDoc }>,
+  patch: Partial<{ summary: string; explanation: TiptapDoc; position: number }>,
 ): Promise<void> {
   const { error } = await supabase.from("nodes").update(patch).eq("id", id);
   if (error) throw error;

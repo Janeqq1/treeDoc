@@ -6,6 +6,7 @@ import { nodeColorClasses } from "@/lib/colors";
 import { safeMutate } from "@/lib/safeMutate";
 import type { NodeRow } from "@/lib/types";
 import ExplanationEditor from "./ExplanationEditor";
+import { useDragDrop } from "./TreeView";
 
 interface TreeNodeProps {
   node: NodeRow;
@@ -40,6 +41,16 @@ export default function TreeNode({
 
   const children = childrenByParent.get(node.id) ?? [];
   const hasChildren = children.length > 0;
+
+  const { draggedNode, dropTarget, startDrag, setDropTarget, commitDrop, endDrag } = useDragDrop();
+  const isDragging = draggedNode?.id === node.id;
+  // Reordering only makes sense among siblings under the same parent —
+  // dropping onto a node with a different parent is rejected here, which
+  // also rules out dropping a node onto one of its own descendants, since a
+  // descendant's parent_id is never the dragged node's own parent_id.
+  const isValidDropZone =
+    !!draggedNode && draggedNode.parent_id === node.parent_id && draggedNode.id !== node.id;
+  const showDropIndicator = isValidDropZone && dropTarget?.nodeId === node.id;
 
   useEffect(() => {
     if (pendingNewNodeId !== node.id) return;
@@ -108,7 +119,23 @@ export default function TreeNode({
   return (
     <div className="relative">
       <div
-        className={`group flex items-start gap-2 rounded-md border px-3 py-2 ${nodeColorClasses(depth, siblingIndex)}`}
+        onDragOver={(e) => {
+          if (!isValidDropZone) return;
+          e.preventDefault();
+          const rect = e.currentTarget.getBoundingClientRect();
+          const edge = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+          setDropTarget(node.id, edge);
+        }}
+        onDrop={(e) => {
+          if (!isValidDropZone) return;
+          e.preventDefault();
+          commitDrop();
+        }}
+        className={`group flex items-start gap-2 rounded-md border px-3 py-2 ${nodeColorClasses(depth, siblingIndex)} ${
+          isDragging ? "opacity-40" : ""
+        } ${showDropIndicator && dropTarget?.edge === "before" ? "border-t-4 border-t-sky-500" : ""} ${
+          showDropIndicator && dropTarget?.edge === "after" ? "border-b-4 border-b-sky-500" : ""
+        }`}
       >
         <button
           type="button"
@@ -154,6 +181,26 @@ export default function TreeNode({
 
         {canEdit && (
           <div className="pointer-events-none flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+            <span
+              draggable
+              onDragStart={(e) => {
+                startDrag(node);
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", node.id);
+              }}
+              onDragEnd={endDrag}
+              title="Drag to reorder"
+              className="flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-neutral-400 hover:text-neutral-700 active:cursor-grabbing"
+            >
+              <svg viewBox="0 0 10 16" className="h-3.5 w-2.5" fill="currentColor">
+                <circle cx="3" cy="3" r="1.3" />
+                <circle cx="7" cy="3" r="1.3" />
+                <circle cx="3" cy="8" r="1.3" />
+                <circle cx="7" cy="8" r="1.3" />
+                <circle cx="3" cy="13" r="1.3" />
+                <circle cx="7" cy="13" r="1.3" />
+              </svg>
+            </span>
             <button
               type="button"
               onClick={handleAddSibling}
